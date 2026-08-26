@@ -17,7 +17,7 @@ local defaults = T{
     zoom_min  = 60,
     zoom_step = 50,
     zoom_max  = 2600,
-    zoom_px   = 256,
+    zoom_px   = 256,      -- zoom pane texture: 128 / 256 / 512 / 1024 (cost rises ~4x per step)
     fog_alpha = 0.6,
     colors = {
         unseen = {r = 118, g = 118, b = 124},

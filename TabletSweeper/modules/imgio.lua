@@ -1,4 +1,5 @@
 local sub, byte, char, rep = string.sub, string.byte, string.char, string.rep
+local concat = table.concat
 local floor = math.floor
 
 local imgio = {}
@@ -33,6 +34,11 @@ function Image:px3(x, y)
     return sub(self.data, off + 1, off + 3)
 end
 
+function Image:row_off(y)
+    local row = self.flip and (self.h - 1 - y) or y
+    return self.data_off + row * self.rowsize
+end
+
 function Image:in_bounds(x, y)
     return x >= 0 and y >= 0 and x < self.w and y < self.h
 end
@@ -53,11 +59,11 @@ local function read_bmp(data)
         return nil, 'BMP must be 24 or 32 bit (got ' .. bpp .. ')'
     end
 
-    local flip = h > 0            -- positive height means bottom-up rows
+    local flip = h > 0
     h = math.abs(h)
     if w <= 0 or h <= 0 then return nil, 'bad dimensions' end
 
-    local pixbytes = bpp / 8
+    local pixbytes = floor(bpp / 8)
     local rowsize  = floor((bpp * w + 31) / 32) * 4
 
     if data_off + rowsize * h > #data then
@@ -97,7 +103,7 @@ local function read_tga(data)
         data_off = data_off + cmaplen * floor(cmapdep / 8)
     end
 
-    local pixbytes = bpp / 8
+    local pixbytes = floor(bpp / 8)
     local rowsize  = w * pixbytes
     local top_down = (desc % 64) >= 32      -- bit 5
 
@@ -179,6 +185,64 @@ function imgio.dimensions(path)
     return nil, 'unrecognised image format'
 end
 
+local Job = {}
+Job.__index = Job
+
+function Job:run(budget)
+    local src  = self.src
+    local w2, h2 = self.w, self.h
+    local rows = self.rows
+
+    local data, off0 = src.data, src.data_off
+    local rs, pb     = src.rowsize, src.pixbytes
+    local flip, sh   = src.flip, src.h
+
+    local t0 = os.clock()
+    local y  = self.y
+
+    while y < h2 do
+        local ya, yb = y * 2, y * 2 + 1
+        local oa = off0 + (flip and (sh - 1 - ya) or ya) * rs
+        local ob = off0 + (flip and (sh - 1 - yb) or yb) * rs
+
+        local parts = {}
+        for x = 0, w2 - 1 do
+            local a = oa + x * 2 * pb
+            local b = ob + x * 2 * pb
+            local b1, g1, r1 = byte(data, a + 1, a + 3)
+            local b2, g2, r2 = byte(data, a + pb + 1, a + pb + 3)
+            local b3, g3, r3 = byte(data, b + 1, b + 3)
+            local b4, g4, r4 = byte(data, b + pb + 1, b + pb + 3)
+            parts[x + 1] = char(floor((b1 + b2 + b3 + b4) * 0.25),
+                                floor((g1 + g2 + g3 + g4) * 0.25),
+                                floor((r1 + r2 + r3 + r4) * 0.25))
+        end
+        rows[y + 1] = concat(parts)
+
+        y = y + 1
+        if os.clock() - t0 >= budget then break end
+    end
+
+    self.y = y
+    if y < h2 then return false end
+
+    self.result = setmetatable({
+        data = concat(rows), w = w2, h = h2,
+        pixbytes = 3, rowsize = w2 * 3,
+        data_off = 0, flip = false,
+        format = 'mip',
+    }, Image)
+    self.rows = nil
+    return true
+end
+
+function imgio.reduce_job(img)
+    if not img then return nil end
+    local w2, h2 = floor(img.w / 2), floor(img.h / 2)
+    if w2 < 1 or h2 < 1 then return nil end
+    return setmetatable({src = img, w = w2, h = h2, y = 0, rows = {}}, Job)
+end
+
 function imgio.write_tga(path, w, h, rows, bpp)
     bpp = bpp or 24
     local desc = (bpp == 32) and 0x28 or 0x20   -- top-left origin (+8 alpha bits)
@@ -188,7 +252,7 @@ function imgio.write_tga(path, w, h, rows, bpp)
     local f = io.open(path, 'wb')
     if not f then return false, 'cannot open ' .. path .. ' for writing' end
     f:write(header)
-    f:write(table.concat(rows))
+    f:write(concat(rows))
     f:close()
     return true
 end

@@ -8,12 +8,15 @@ grid.conservative = true
 
 grid.seen    = {}
 grid.count   = 0
-grid.pending = {}   -- cells marked since the last flush, for append-only saves
+grid.pending = {}
 grid.dirty   = false
 grid.changed = false
 
 local BIAS  = 16384
 local SPAN  = 32768
+
+grid.BIAS = BIAS
+grid.SPAN = SPAN
 
 local function key(cx, cy)
     return (cx + BIAS) * SPAN + (cy + BIAS)

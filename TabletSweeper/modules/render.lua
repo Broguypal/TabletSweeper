@@ -1,4 +1,4 @@
-local floor, sqrt = math.floor, math.sqrt
+local floor, sqrt, abs = math.floor, math.sqrt, math.abs
 local rep, char, concat = string.rep, string.char, table.concat
 local sub, byte = string.sub, string.byte
 
@@ -28,6 +28,13 @@ local WHITE    = 'data/white.tga'
 
 local player_x, player_y = nil, nil
 local fog_key, fog_map   = nil, {}
+
+local mips     = {}
+local mipjob   = nil
+local mip_max  = 0
+
+local MIN_MIP  = 24     
+local MAX_MIP  = 6
 
 local DEF_PLAYER = {r = 255, g = 48,  b = 48}
 local DEF_SWEEP  = {r = 255, g = 214, b = 64}
@@ -88,10 +95,63 @@ function render.hide_map()
     end
 end
 
+local function drop_mips()
+    mips, mipjob, mip_max = {}, nil, 0
+end
+
 function render.unload_zone()
     render.desc, render.art, render.error = nil, nil, nil
+    drop_mips()
     last_key = nil
     player_x, player_y = nil, nil
+end
+
+local function queue_next()
+    local have = 0
+    for i = 1, mip_max do
+        if mips[i] then have = i else break end
+    end
+    if have >= mip_max or not mips[have] then return end
+    mipjob = imgio.reduce_job(mips[have])
+    if mipjob then mipjob.level = have + 1 else mip_max = have end
+end
+
+local function plan_mips(img)
+    mips, mipjob = {[0] = img}, nil
+    mip_max = 0
+    local w, h = img.w, img.h
+    while mip_max < MAX_MIP and floor(w / 2) >= MIN_MIP and floor(h / 2) >= MIN_MIP do
+        w, h = floor(w / 2), floor(h / 2)
+        mip_max = mip_max + 1
+    end
+    queue_next()
+end
+
+function render.pump(budget)
+    if not mipjob then return end
+    local ok, done = pcall(mipjob.run, mipjob, budget or 0.003)
+    if not ok then
+        mip_max, mipjob = mipjob.level - 1, nil
+        return
+    end
+    if done then
+        if mipjob.result then
+            mips[mipjob.level] = mipjob.result
+            last_key = nil 
+        else
+            mip_max = mipjob.level - 1
+        end
+        mipjob = nil
+        queue_next()
+    end
+end
+
+local function level_image(want)
+    local have = 0
+    for i = 1, want do
+        if mips[i] then have = i else break end
+    end
+    return mips[have], have
 end
 
 function render.bind(zone_id, x, y, z)
@@ -100,17 +160,20 @@ function render.bind(zone_id, x, y, z)
     local desc, err = mapdata.resolve(zone_id, x, y, z)
     if not desc then
         render.desc, render.art, render.error = nil, nil, err
+        drop_mips()
         last_key = nil
         return false
     end
 
     render.error, render.desc, render.art = nil, desc, nil
+    drop_mips()
     last_key = nil
 
     if desc.pixel then
         local img, ierr = imgio.load(desc.pixel)
         if img and img.w == desc.pw and img.h == desc.ph then
             render.art = img
+            plan_mips(img)
         else
             util.err('could not use ' .. desc.base .. ' image data: ' .. tostring(ierr or 'size mismatch'))
         end
@@ -126,9 +189,11 @@ function render.set_rect(box)
 end
 
 local function texture_size()
-    local span = settings.zoom_span
-    if span > 700 then return math.max(128, math.floor(settings.zoom_px / 2)) end
-    return settings.zoom_px
+    local s = settings.zoom_px or 256
+    if s < 128 then s = 128 elseif s > 1024 then s = 1024 end
+    local p = 128
+    while p < 1024 and s / p > p * 2 / s do p = p * 2 end   -- nearest of 128/256/512/1024
+    return p
 end
 render.texture_size = texture_size
 
@@ -200,18 +265,36 @@ local function apply_mods(rows, mods)
     end
 end
 
+local GB, GS = grid.BIAS, grid.SPAN
+
 local function build(px, py)
     local S    = texture_size()
     local span = settings.zoom_span
     local cell = grid.cell
     local d    = render.desc
-    local art  = render.art
-    local use_art = (art ~= nil and d ~= nil and d.pax ~= nil)
 
     local step = span / S
 
-    -- YScale is negative in map.ini, so image rows run opposite to world Y.
-    -- Follow the image on both axes or north/south comes out mirrored.
+    local art, lvl = nil, 0
+    if render.art and d and d.pax then
+        local scale = step * abs(d.pax)
+        local want  = 0
+        while want < mip_max and scale >= 2 do scale, want = scale * 0.5, want + 1 end
+        art, lvl = level_image(want)
+    end
+
+    local use_art = art ~= nil
+    local shrink  = 2 ^ lvl
+    local lax, lbx, lay, lby
+    local adata, adata_off, arowsize, apix, aflip, aw, ah
+    if use_art then
+        lax, lbx = d.pax / shrink, d.pbx / shrink
+        lay, lby = d.pay / shrink, d.pby / shrink
+        adata, adata_off = art.data, art.data_off
+        arowsize, apix   = art.rowsize, art.pixbytes
+        aflip, aw, ah    = art.flip, art.w, art.h
+    end
+
     local sx, sy = 1, 1
     if d then
         if d.ax < 0 then sx = -1 end
@@ -227,12 +310,19 @@ local function build(px, py)
         local cx = floor(wx / cell)
         local su = -1
         if use_art then
-            su = floor(d.pax * wx + d.pbx)
-            if su < 0 or su >= art.w then su = -1 end
+            su = floor(lax * wx + lbx)
+            if su < 0 or su >= aw then su = -1 end
         end
         local r = runs[nr]
         if r and r.cx == cx and r.su == su then r.n = r.n + 1
-        else nr = nr + 1; runs[nr] = {cx = cx, su = su, n = 1} end
+        else
+            nr = nr + 1
+            runs[nr] = {
+                cx = cx, su = su, n = 1,
+                kb = (cx + GB) * GS,
+                so = (su >= 0) and su * apix or -1, 
+            }
+        end
     end
 
     local cu, cs = settings.colors.unseen, settings.colors.seen
@@ -259,33 +349,39 @@ local function build(px, py)
         return m
     end
 
+    local seen = grid.seen
     local rows, cache = {}, {}
     for v = 0, S - 1 do
         local wy = y0 + sy * (v + 0.5) * step
         local cy = floor(wy / cell)
         local sv = -1
         if use_art then
-            sv = floor(d.pay * wy + d.pby)
-            if sv < 0 or sv >= art.h then sv = -1 end
+            sv = floor(lay * wy + lby)
+            if sv < 0 or sv >= ah then sv = -1 end
         end
 
         local ck = cy * 131072 + sv
         local row = cache[ck]
         if not row then
+            local ro = 0
+            if sv >= 0 then
+                ro = adata_off + (aflip and (ah - 1 - sv) or sv) * arowsize
+            end
+            local ky = cy + GB
             local parts = {}
             for i = 1, nr do
                 local r = runs[i]
-                if not grid.is_seen(r.cx, cy) then
-                    if sv >= 0 and r.su >= 0 then
-                        parts[i] = rep(mix(art:px3(r.su, sv)), r.n)
-                    else
-                        parts[i] = rep(fogp, r.n)
-                    end
-                elseif sv >= 0 and r.su >= 0 then
-                    parts[i] = rep(art:px3(r.su, sv), r.n)
+                local p
+                if sv >= 0 and r.so >= 0 then
+                    local o = ro + r.so
+                    p = sub(adata, o + 1, o + 3)
+                    if not seen[r.kb + ky] then p = mix(p) end
+                elseif seen[r.kb + ky] then
+                    p = seenp
                 else
-                    parts[i] = rep(seenp, r.n)
+                    p = fogp
                 end
+                parts[i] = (r.n == 1) and p or rep(p, r.n)
             end
             row = concat(parts)
             cache[ck] = row
@@ -298,22 +394,24 @@ local function build(px, py)
         local pv = (player_y - y0) / (sy * step) - 0.5
         local rr = grid.radius / step
 
+        local ms = S / 256
+
         local cw = settings.colors.sweep  or DEF_SWEEP
         local cp = settings.colors.player or DEF_PLAYER
         local ringp = char(cw.b or 0, cw.g or 0, cw.r or 0)
         local dotp  = char(cp.b or 0, cp.g or 0, cp.r or 0)
 
         local mods = {}
-        ring(mods, S, pu, pv, rr, ringp)
-        disc(mods, S, pu, pv, util.clamp(rr * 0.12, 1.5, 3.0), dotp)
+        local thick = floor(ms + 0.5)
+        if thick < 1 then thick = 1 end
+        for t = 0, thick - 1 do ring(mods, S, pu, pv, rr - t * 0.7, ringp) end
+        disc(mods, S, pu, pv, util.clamp(rr * 0.12, 1.5 * ms, 3.0 * ms), dotp)
         apply_mods(rows, mods)
     end
 
     return rows, S, S
 end
 
--- Double-buffered: write and bind the idle prim, then swap visibility. Reusing
--- one prim made it blink while the texture was recreated.
 local function swap(px, py, force)
     local S, span = texture_size(), settings.zoom_span
     local stepq = span / S
@@ -347,7 +445,6 @@ local function swap(px, py, force)
     return true
 end
 
--- World extent of the map image.
 local function map_bounds(d)
     local x0, y0 = mapdata.px_to_world(d, 0, 0)
     local x1, y1 = mapdata.px_to_world(d, d.w, d.h)
