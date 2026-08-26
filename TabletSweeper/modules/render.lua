@@ -1,5 +1,6 @@
-local floor, sqrt, abs = math.floor, math.sqrt, math.abs
+local floor, sqrt = math.floor, math.sqrt
 local rep, char, concat = string.rep, string.char, table.concat
+local sub, byte = string.sub, string.byte
 
 local util     = require('modules/util')
 local settings = require('modules/settings')
@@ -24,6 +25,12 @@ local active   = 'B'
 local last_key = nil
 local rect     = nil
 local WHITE    = 'data/white.tga'
+
+local player_x, player_y = nil, nil
+local fog_key, fog_map   = nil, {}
+
+local DEF_PLAYER = {r = 255, g = 48,  b = 48}
+local DEF_SWEEP  = {r = 255, g = 214, b = 64}
 
 function render.white_path() return windower.addon_path .. WHITE end
 
@@ -84,6 +91,7 @@ end
 function render.unload_zone()
     render.desc, render.art, render.error = nil, nil, nil
     last_key = nil
+    player_x, player_y = nil, nil
 end
 
 function render.bind(zone_id, x, y, z)
@@ -124,6 +132,74 @@ local function texture_size()
 end
 render.texture_size = texture_size
 
+local function put(mods, S, u, v, c)
+    u = floor(u + 0.5)
+    v = floor(v + 0.5)
+    if u < 0 or v < 0 or u >= S or v >= S then return end
+    local row = mods[v]
+    if not row then row = {} mods[v] = row end
+    row[u] = c
+end
+
+local function ring(mods, S, u0, v0, r, c)
+    if r < 1 then return end
+    local r2 = r * r
+
+    for v = floor(v0 - r) - 1, floor(v0 + r) + 1 do
+        local dy = v - v0
+        local t = r2 - dy * dy
+        if t >= 0 then
+            local dx = sqrt(t)
+            put(mods, S, u0 - dx, v, c)
+            put(mods, S, u0 + dx, v, c)
+        end
+    end
+
+    for u = floor(u0 - r) - 1, floor(u0 + r) + 1 do
+        local dx = u - u0
+        local t = r2 - dx * dx
+        if t >= 0 then
+            local dy = sqrt(t)
+            put(mods, S, u, v0 - dy, c)
+            put(mods, S, u, v0 + dy, c)
+        end
+    end
+end
+
+local function disc(mods, S, u0, v0, r, c)
+    local r2 = r * r
+    for v = floor(v0 - r) - 1, floor(v0 + r) + 1 do
+        local dv = v - v0
+        for u = floor(u0 - r) - 1, floor(u0 + r) + 1 do
+            local du = u - u0
+            if du * du + dv * dv <= r2 then put(mods, S, u, v, c) end
+        end
+    end
+end
+
+local function apply_mods(rows, mods)
+    for v, cols in pairs(mods) do
+        local row = rows[v + 1]
+        if row then
+            local idx, ni = {}, 0
+            for u in pairs(cols) do ni = ni + 1 idx[ni] = u end
+            table.sort(idx)
+            local parts, n, pos = {}, 0, 1
+            for i = 1, ni do
+                local u   = idx[i]
+                local off = u * 3 + 1
+                if off > pos then n = n + 1 parts[n] = sub(row, pos, off - 1) end
+                n = n + 1
+                parts[n] = cols[u]
+                pos = off + 3
+            end
+            n = n + 1
+            parts[n] = sub(row, pos)
+            rows[v + 1] = concat(parts)
+        end
+    end
+end
+
 local function build(px, py)
     local S    = texture_size()
     local span = settings.zoom_span
@@ -163,6 +239,26 @@ local function build(px, py)
     local fogp  = char(cu.b or 0, cu.g or 0, cu.r or 0)
     local seenp = char(cs.b or 0, cs.g or 0, cs.r or 0)
 
+    local fa = settings.fog_alpha or 0.6
+    if fa < 0 then fa = 0 elseif fa > 1 then fa = 1 end
+
+    local fk = concat({cu.r or 0, cu.g or 0, cu.b or 0, fa}, ':')
+    if fk ~= fog_key then fog_key, fog_map = fk, {} end
+
+    local inv = 1 - fa
+    local fb, fg, fr = (cu.b or 0) * fa, (cu.g or 0) * fa, (cu.r or 0) * fa
+
+    local function mix(p)
+        local m = fog_map[p]
+        if not m then
+            local b, g, r = byte(p, 1, 3)
+            if not r then return fogp end
+            m = char(floor(b * inv + fb), floor(g * inv + fg), floor(r * inv + fr))
+            fog_map[p] = m
+        end
+        return m
+    end
+
     local rows, cache = {}, {}
     for v = 0, S - 1 do
         local wy = y0 + sy * (v + 0.5) * step
@@ -180,7 +276,11 @@ local function build(px, py)
             for i = 1, nr do
                 local r = runs[i]
                 if not grid.is_seen(r.cx, cy) then
-                    parts[i] = rep(fogp, r.n)
+                    if sv >= 0 and r.su >= 0 then
+                        parts[i] = rep(mix(art:px3(r.su, sv)), r.n)
+                    else
+                        parts[i] = rep(fogp, r.n)
+                    end
                 elseif sv >= 0 and r.su >= 0 then
                     parts[i] = rep(art:px3(r.su, sv), r.n)
                 else
@@ -192,6 +292,23 @@ local function build(px, py)
         end
         rows[v + 1] = row
     end
+
+    if player_x and player_y then
+        local pu = (player_x - x0) / (sx * step) - 0.5
+        local pv = (player_y - y0) / (sy * step) - 0.5
+        local rr = grid.radius / step
+
+        local cw = settings.colors.sweep  or DEF_SWEEP
+        local cp = settings.colors.player or DEF_PLAYER
+        local ringp = char(cw.b or 0, cw.g or 0, cw.r or 0)
+        local dotp  = char(cp.b or 0, cp.g or 0, cp.r or 0)
+
+        local mods = {}
+        ring(mods, S, pu, pv, rr, ringp)
+        disc(mods, S, pu, pv, util.clamp(rr * 0.12, 1.5, 3.0), dotp)
+        apply_mods(rows, mods)
+    end
+
     return rows, S, S
 end
 
@@ -201,7 +318,9 @@ local function swap(px, py, force)
     local S, span = texture_size(), settings.zoom_span
     local stepq = span / S
     local key = table.concat({
-        floor(px / stepq), floor(py / stepq), grid.count, S, span,
+        floor(px / stepq), floor(py / stepq),
+        floor((player_x or 0) / stepq), floor((player_y or 0) / stepq),
+        grid.count, S, span, grid.radius,
         render.desc and render.desc.base or '-',
     }, ':')
 
@@ -262,6 +381,8 @@ function render.update(px, py, force)
         render.hide_map()
         return
     end
+
+    player_x, player_y = px, py
 
     local cx, cy = view_centre(px, py)
     swap(cx, cy, force)

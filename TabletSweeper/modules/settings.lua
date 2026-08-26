@@ -18,9 +18,12 @@ local defaults = T{
     zoom_step = 50,
     zoom_max  = 2600,
     zoom_px   = 256,
+    fog_alpha = 0.6,
     colors = {
-        unseen = {r = 10, g = 10, b = 14},
+        unseen = {r = 118, g = 118, b = 124},
         seen   = {r = 58, g = 96,  b = 68},
+        player = {r = 255, g = 48, b = 48},
+        sweep  = {r = 255, g = 214, b = 64},
         panel  = {r = 12, g = 12, b = 18},
         border = {r = 70, g = 78, b = 96},
         button = {r = 38, g = 42, b = 54},
