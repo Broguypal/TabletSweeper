@@ -7,10 +7,6 @@ local imgio    = require('modules/imgio')
 local grid     = require('modules/grid')
 local mapdata  = require('modules/mapdata')
 
--- Prims are textured quads with no pixel API, so we write TGA files and
--- hot-swap them. TGA because uncompressed + no checksums = trivial writer.
--- Rows are built from run-lengths and cached, so a frame is a few thousand
--- string ops rather than 65k.
 local render = {}
 
 local P = {
@@ -31,9 +27,6 @@ local WHITE    = 'data/white.tga'
 
 function render.white_path() return windower.addon_path .. WHITE end
 
--- A prim with fit_to_texture on draws at its texture's size and ignores
--- set_size, which pinned the map to the pane's top-left corner as the adaptive
--- resolution shrank. pcall'd in case an older Windower lacks the setter.
 local function no_fit(name)
     pcall(windower.prim.set_fit_to_texture, name, false)
 end
@@ -124,8 +117,6 @@ function render.set_rect(box)
     last_key = nil
 end
 
--- Far out, one texel already covers many yalms, so full resolution just burns
--- 65k grid lookups per rebuild for detail nobody can see.
 local function texture_size()
     local span = settings.zoom_span
     if span > 700 then return math.max(128, math.floor(settings.zoom_px / 2)) end
@@ -247,9 +238,6 @@ local function map_bounds(d)
 end
 
 
--- Keep the view inside the map: centre it once the view is wider than the map,
--- otherwise clamp so the edges never pull in blank space. Without this, zooming
--- out shoves the whole zone into a corner.
 local function view_centre(px, py)
     local d = render.desc
     if not d then return px, py end

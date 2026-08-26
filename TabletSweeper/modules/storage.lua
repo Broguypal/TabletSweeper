@@ -1,9 +1,6 @@
 local util = require('modules/util')
 local grid = require('modules/grid')
 
--- Append-only. A heavily swept zone is ~600k cells and rewriting that every
--- autosave cost a full second; appending only what's new costs nothing.
--- Full rewrite happens on reset and on zone unload (which also compacts).
 local storage = {}
 
 local function char_folder()

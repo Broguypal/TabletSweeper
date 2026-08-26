@@ -2,9 +2,6 @@ local util     = require('modules/util')
 local imgio    = require('modules/imgio')
 local mapini   = require('modules/mapini')
 
--- Transform is Mappy's: Translate() works in a 256-unit space, so px scales by
--- img/256 (their Bounds halves 512/scale, "factor of 2"). Holds for any image
--- size, which is why the 512 gifs and 2048 pngs both land correctly.
 local mapdata = {}
 
 local MAPS  = 'maps/'
@@ -29,7 +26,6 @@ function mapdata.basename(zone_id, map_id)
 end
 
 
--- Windows is case-insensitive but packs mix 6A_0 and 6a_0, so try both.
 local function find(dirs, base, exts)
     local names = {base, base:lower()}
     for _, dir in ipairs(dirs) do
@@ -72,8 +68,6 @@ function mapdata.resolve(zone_id, x, y, z)
         return nil, 'could not read ' .. base .. ': ' .. tostring(derr)
     end
 
-    -- The bmp copy is sampled in world space, so it may be any resolution;
-    -- give it its own transform rather than assuming it matches the texture.
     local pixel_path = find({CACHE, MAPS}, base, PIXEL_EXT)
     local pw, ph
     if pixel_path then

@@ -70,7 +70,6 @@ function ui.rebuild_static()
     ui.relayout()
 end
 
--- No commands exist to recover a window dragged off-screen, so never let it go.
 local function clamp_pos(w, h)
     local ws = windower.get_windower_settings()
     if not ws then return end
@@ -99,8 +98,6 @@ local function build_layout()
     return L
 end
 
--- Both the drawing pass and the mouse handler derive rects from this, so a
--- click can never be tested against stale geometry.
 local function compute_hits()
     local L = layout or build_layout()
     local state = _G.TS_STATE
@@ -277,9 +274,6 @@ local function do_action(action)
     end
 end
 
--- Mouse x,y are already in the same space as prim coordinates. An earlier
--- version scaled them by ui_res/game_res, which killed every button whenever
--- those two differed. Do not reintroduce that.
 windower.register_event('mouse', function(mtype, x, y, delta, blocked)
     if blocked or not inited then return false end
     local state = _G.TS_STATE
@@ -335,8 +329,5 @@ windower.register_event('mouse', function(mtype, x, y, delta, blocked)
 
     return false
 end)
-
-
-
 
 return ui

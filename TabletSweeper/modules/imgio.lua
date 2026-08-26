@@ -126,8 +126,6 @@ function imgio.load(path)
     return read_tga(data)
 end
 
--- Header-only read: a png can go on a prim but we still need its size for the
--- transform and the fog overlay's aspect.
 function imgio.dimensions(path)
     local f = io.open(path, 'rb')
     if not f then return nil, 'file not found' end

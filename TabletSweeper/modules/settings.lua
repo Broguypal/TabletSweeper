@@ -4,9 +4,9 @@ local config = require('config')
 local defaults = T{
     collapsed = false,
 
-    radius       = 50.0,   -- horizontal only; height is never considered
+    radius       = 50.0,   
     cell         = 1.0,
-    conservative = true,   -- cell must lie ENTIRELY within radius: 50y is a ceiling, never exceeded
+    conservative = true,  
 
     update_hz         = 6,
     autosave_seconds  = 60,
