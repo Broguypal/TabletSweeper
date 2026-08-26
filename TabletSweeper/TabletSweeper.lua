@@ -80,6 +80,8 @@ local function tick()
 end
 
 windower.register_event('prerender', function()
+    render.pump(0.003)
+
     local now = os.clock()
     if now - state.last_tick < 1 / math.max(1, settings.update_hz) then return end
     state.last_tick = now
