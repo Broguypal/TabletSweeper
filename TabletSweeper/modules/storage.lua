@@ -89,4 +89,27 @@ function storage.load(zone_id)
     grid.changed = true
 end
 
+function storage.clear_all()
+    local dir = windower.addon_path .. char_folder()
+    local removed = 0
+
+    local ok, list = pcall(function()
+        return windower.get_dir and windower.get_dir(dir)
+    end)
+
+    if ok and type(list) == 'table' then
+        for _, name in ipairs(list) do
+            if type(name) == 'string' and name:match('^%-?%d+%.txt$') then
+                if os.remove(dir .. '/' .. name) then removed = removed + 1 end
+            end
+        end
+    end
+
+    grid.clear()
+    grid.pending = {}
+    grid.dirty   = false
+
+    return removed
+end
+
 return storage

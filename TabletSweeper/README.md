@@ -26,8 +26,6 @@ TabletSweeper already includes everything it needs for all 29 supported tablet z
 
 The map will automatically appear when you enter a supported zone and disappear when you leave one.
 
-There are **no commands to learn**. Everything you need is available directly in the window.
-
 | Button                 | What it does                              |
 | ---------------------- | ----------------------------------------- |
 | **− / +**              | Zoom the map out or in                    |
@@ -40,6 +38,12 @@ You can also:
 
 * **Drag the title bar** to move the window.
 * **Scroll the mouse wheel over the map** to zoom in or out.
+
+## Commands
+
+The only command is to clear all maps. Type the following to do this:
+
+   `//tablet resetall`
 
 ## Your Progress Is Saved
 

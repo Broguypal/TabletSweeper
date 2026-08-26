@@ -1,6 +1,7 @@
 _addon.name     = 'TabletSweeper'
 _addon.author   = 'Broguypal'
 _addon.version  = '1.0.0'
+_addon.command  = 'tablet'
 
 package.path = windower.addon_path .. '?.lua;' .. package.path
 
@@ -87,6 +88,22 @@ windower.register_event('prerender', function()
         util.err('error: ' .. tostring(err))
         ui.hide_all()
     end
+end)
+
+windower.register_event('addon command', function(cmd)
+    cmd = tostring(cmd or ''):lower()
+
+    if cmd == 'clearall' or cmd == 'resetall' or cmd == 'wipe' then
+        local n = storage.clear_all()
+        state.last_save = os.clock()
+        state.last_mark_x, state.last_mark_y = nil, nil
+        render.invalidate()
+        ui.mark_dirty()
+        util.msg('erased swept data for ' .. n .. ' zone' .. (n == 1 and '' or 's') .. '.')
+        return
+    end
+
+    util.msg('//tablet clearall - erase swept data for every zone on this character')
 end)
 
 windower.register_event('zone change', function(new_id) load_zone(new_id) end)
