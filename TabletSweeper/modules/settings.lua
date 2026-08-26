@@ -8,7 +8,7 @@ local defaults = T{
     cell         = 1.0,
     conservative = true,  
 
-    update_hz         = 6,
+    update_hz         = 15,
     autosave_seconds  = 60,
 
     pos       = {x = 20, y = 20},
